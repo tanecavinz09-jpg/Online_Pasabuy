@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Online Pasabuy: Mamburao Community Delivery App</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+tailwind.config={theme:{extend:{colors:{bg:'var(--bg)',surface:'var(--surface)',ink:'var(--ink)',muted:'var(--muted)',line:'var(--line)',chip:'var(--chip)',brand:'var(--brand)',accent:'#ff5a3d'},fontFamily:{display:['"Bricolage Grotesque"','Figtree','system-ui','sans-serif'],sans:['Figtree','system-ui','sans-serif']}}}};
+</script>
+<style>
+:root{--bg:#f6f4fb;--surface:#fff;--ink:#1d1633;--muted:#665f7d;--line:#ddd6ee;--chip:#ece7f8;--brand:#6d28d9;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#130d24;--surface:#1e1636;--ink:#efeafc;--muted:#a79fc2;--line:#3a2d5e;--chip:#2a2048;--brand:#a78bfa;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#130d24;--surface:#1e1636;--ink:#efeafc;--muted:#a79fc2;--line:#3a2d5e;--chip:#2a2048;--brand:#a78bfa;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{background:var(--bg);color:var(--ink);font-family:Figtree,system-ui,sans-serif}
+input,select,textarea{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%}
+:focus-visible{outline:3px solid #f5b83d;outline-offset:2px}
+@keyframes ping2{0%{box-shadow:0 0 0 0 rgba(34,197,94,.6)}100%{box-shadow:0 0 0 10px rgba(34,197,94,0)}}
+.dot{animation:ping2 1.6s ease-out infinite}
+@media (prefers-reduced-motion:reduce){.dot{animation:none}}
+.leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-layer{position:absolute;left:0;top:0}
+.leaflet-container{overflow:hidden;position:relative;outline:0;touch-action:none;background:var(--chip)}
+.leaflet-container img.leaflet-tile{max-width:none!important;max-height:none!important}
+.leaflet-tile,.leaflet-marker-icon{user-select:none;-webkit-user-drag:none}
+.leaflet-tile{visibility:hidden}.leaflet-tile-loaded{visibility:inherit}
+.leaflet-tile-pane{z-index:200}.leaflet-overlay-pane{z-index:400}.leaflet-shadow-pane{z-index:500}.leaflet-marker-pane{z-index:600}.leaflet-popup-pane{z-index:700}
+.leaflet-pane>svg,.leaflet-pane>canvas{pointer-events:none}.leaflet-overlay-pane svg{max-width:none!important;max-height:none!important}
+.leaflet-zoom-animated{transform-origin:0 0}
+.pin{display:grid;place-items:center;font:800 16px Figtree,sans-serif;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.35)}.pin-P{background:#fff;color:#111;border:3px solid #111}.pin-D{background:#e11d48;color:#fff;border:3px solid #fff}.pin-R{background:#7c3aed;color:#fff;border:3px solid #fff}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const {useState,useEffect,useRef}=React;
+const html=htm.bind(React.createElement);
+const LOGO="__LOGO__";
+const KU="pasabuy_users",KR="pasabuy_requests",KC="pasabuy_chats",KS="currentUser";
+const rd=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}};
+const wr=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+async function hash(s){try{const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}catch(e){return"x"+btoa(unescape(encodeURIComponent(s)))}}
+const peso=n=>"₱"+Number(n||0).toLocaleString("en-PH",{minimumFractionDigits:2,maximumFractionDigits:2});
+const feeFor=d=>+(30+d*12).toFixed(2);
+const CEN=[13.221,120.595];
+const SC={Pending:"bg-amber-100 text-amber-900",Accepted:"bg-violet-100 text-violet-900","Picked Up":"bg-sky-100 text-sky-900","On The Way":"bg-orange-100 text-orange-900",Delivered:"bg-emerald-100 text-emerald-900"};
+const BTN="rounded-xl px-4 py-2 font-semibold transition-colors ";
+const B1=BTN+"bg-brand text-white hover:opacity-90",B2=BTN+"bg-amber-300 text-black hover:bg-amber-200",B3=BTN+"border border-line text-ink hover:bg-chip",BD=BTN+"border border-red-500 text-red-600";
+const users=()=>rd(KU,[]);
+
+async function ensureSeed(){
+  const h=await hash("123456"),u=users();
+  [{id:"u-customer",name:"Test Customer",email:"customer@test.com",role:"Customer"},{id:"u-pasabuyer",name:"Test Pasabuyer",email:"pasabuyer@test.com",role:"Pasabuyer"}]
+   .forEach(s=>{if(!u.some(x=>x.email===s.email))u.push({...s,pw:h})});
+  wr(KU,u);
+  if(localStorage.getItem(KR)==null){
+    const m=(i,item,qty,store,budget,address,notes)=>({id:"seed"+i,item,qty,store,budget,deliveryFee:0,distance:0,customerId:"u-customer",customerName:"Test Customer",pasabuyerId:null,pasabuyerName:"",status:"Pending",address,notes,createdAt:Date.now()-i*3600000,dest:null,pos:null,trail:[]});
+    wr(KR,[m(1,"Rice and cooking oil","5 kg + 1 L","Mamburao Public Market",450,"Poblacion 4, Mamburao","Any local brand is fine."),m(2,"Bond paper and ballpens","2 reams, 1 box","Stationery shop, Mamburao",700,"Near Mamburao National High School","Short bond paper.")]);
+  }
+}
+/* ---- data actions: every one re-checks role/ownership ---- */
+const KRT="pasabuyer_ratings",STEPS=["Accepted","Picked Up","On The Way","Delivered"];
+const reqs=()=>rd(KR,[]).map(r=>({offers:[],serviceFee:0,finalPrice:0,P:null,D:null,actualPrice:null,sukli:0,kulang:0,finalTotal:0,originalTotal:0,receipt:null,settled:null,description:r.notes||"",...r}));
+const ratings=()=>rd(KRT,[]);
+const pp=n=>"₱"+Number(n||0).toLocaleString("en-PH",{maximumFractionDigits:2});
+const avg=id=>{const l=ratings().filter(x=>x.riderId===id);return{n:l.length,a:l.length?l.reduce((s,x)=>s+x.stars,0)/l.length:0}};
+const starTxt=id=>{const v=avg(id);return v.n?"★ "+v.a.toFixed(1)+" ("+v.n+")":"No ratings yet"};
+function addChat(id,m){const c=rd(KC,{});(c[id]=c[id]||[]).push({...m,ts:Date.now()});wr(KC,c)}
+const hasLive=(r,id)=>r.offers.some(o=>o.riderId===id&&(o.status==="pending"||o.status==="accepted"));
+const canOffer=(r,cu)=>cu.role==="Pasabuyer"&&r.status==="Pending"&&!hasLive(r,cu.id);
+const involved=(r,cu)=>r.customerId===cu.id||r.pasabuyerId===cu.id||r.offers.some(o=>o.riderId===cu.id);
+const canChat=(r,cu)=>involved(r,cu)&&(r.customerId!==cu.id||r.offers.length>0||r.status!=="Pending");
+const kmB=(a,b)=>Math.hypot((a[0]-b[0])*111,(a[1]-b[1])*111*Math.cos(a[0]*Math.PI/180));
+function geo(r){
+  if(r.P&&r.D)return{P:r.P,D:r.D};
+  let s=[...r.id].reduce((a,c)=>(Math.imul(a,31)+c.charCodeAt(0))>>>0,7);const n=()=>{s=(Math.imul(s,1103515245)+12345)>>>0;return s/4294967296};
+  return{P:[CEN[0]+(n()-.5)*.02,CEN[1]+(n()-.5)*.02],D:[CEN[0]+(n()-.5)*.02,CEN[1]+(n()-.5)*.02]};
+}
+function riderPos(r){ /* R moves only when the rider taps a status button */
+  const f={"Accepted":0,"Picked Up":.5,"On The Way":.85,"Delivered":1}[r.status];if(f===undefined)return null;
+  const g=geo(r);return[g.P[0]+(g.D[0]-g.P[0])*f,g.P[1]+(g.D[1]-g.P[1])*f];
+}
+function postRequest(cu,f){
+  if(cu.role!=="Customer")return false;
+  const a=rd(KR,[]);a.push({id:"r"+Date.now(),item:f.item.trim(),qty:f.qty.trim(),store:f.store.trim(),description:f.description.trim(),budget:+f.budget,itemBudget:+f.budget,deliveryFee:0,distance:0,serviceFee:0,finalPrice:0,offers:[],customerId:cu.id,customerName:cu.name,pasabuyerId:null,pasabuyerName:"",status:"Pending",address:f.address.trim(),createdAt:Date.now(),P:null,D:null});
+  wr(KR,a);return true;
+}
+function sendOffer(cu,id,price,msg){
+  if(cu.role!=="Pasabuyer"||!(+price>0))return false;
+  const a=reqs(),r=a.find(x=>x.id===id);if(!r||!canOffer(r,cu))return false;
+  const o={offerId:"o"+Date.now(),riderId:cu.id,riderName:cu.name,price:+price,message:msg.trim(),status:"pending",date:Date.now()};
+  r.offers.push(o);wr(KR,a);
+  addChat(id,{from:cu.id,name:cu.name,sys:"offer",text:"💰 OFFER: Si "+cu.name+" nag-offer ng "+pp(o.price)+" service fee para sa "+r.item+". Message: "+(o.message||"-")});
+  return true;
+}
+function acceptOffer(cu,id,oid){
+  const a=reqs(),r=a.find(x=>x.id===id);
+  if(!r||cu.role!=="Customer"||r.customerId!==cu.id||r.status!=="Pending")return false;
+  const o=r.offers.find(x=>x.offerId===oid);if(!o||o.status!=="pending")return false;
+  r.offers.forEach(x=>{x.status=x.offerId===oid?"accepted":(x.status==="pending"?"declined":x.status)});
+  const rp=()=>[CEN[0]+(Math.random()-.5)*.03,CEN[1]+(Math.random()-.5)*.03];let P=rp(),D=rp(),t=0;while(kmB(P,D)<0.6&&t++<30)D=rp();
+  r.status="Accepted";r.pasabuyerId=o.riderId;r.pasabuyerName=o.riderName;r.serviceFee=o.price;r.deliveryFee=o.price;r.finalPrice=r.budget+o.price;r.P=P;r.D=D;r.distance=+kmB(P,D).toFixed(2);
+  wr(KR,a);addChat(id,{from:cu.id,name:cu.name,sys:"accepted",text:"✅ ACCEPTED: Na-accept mo offer ni "+o.riderName+" na "+pp(o.price)+". Rider is now assigned."});return true;
+}
+function declineOffer(cu,id,oid){
+  const a=reqs(),r=a.find(x=>x.id===id);
+  if(!r||cu.role!=="Customer"||r.customerId!==cu.id||r.status!=="Pending")return false;
+  const o=r.offers.find(x=>x.offerId===oid);if(!o||o.status!=="pending")return false;
+  o.status="declined";wr(KR,a);addChat(id,{from:cu.id,name:cu.name,sys:"declined",text:"❌ DECLINED: Na-decline mo offer ni "+o.riderName});return true;
+}
+const STEPMSG={"Picked Up":"📦 PICKED UP: Na-pick up na ni %R ang %I.","On The Way":"🛵 ON THE WAY: Papunta na si %R sa address mo para sa %I.","Delivered":"🏠 DELIVERED: Na-deliver na ni %R ang %I. Salamat!"};
+function setStep(cu,id,next){
+  const a=reqs(),r=a.find(x=>x.id===id);
+  if(!r||cu.role!=="Pasabuyer"||r.pasabuyerId!==cu.id||STEPS[STEPS.indexOf(r.status)+1]!==next||(next==="Delivered"&&r.actualPrice==null))return false;
+  r.status=next;wr(KR,a);addChat(id,{from:cu.id,name:cu.name,sys:"status",text:STEPMSG[next].replace("%R",cu.name).replace("%I",r.item)});return true;
+}
+function rateRider(cu,id,s,c){
+  const r=reqs().find(x=>x.id===id),l=ratings();
+  if(!r||cu.role!=="Customer"||r.customerId!==cu.id||r.status!=="Delivered"||l.some(x=>x.requestId===id)||!(s>=1&&s<=5))return false;
+  l.push({id:"g"+Date.now(),requestId:id,riderId:r.pasabuyerId,riderName:r.pasabuyerName,customerId:cu.id,customerName:cu.name,stars:s,comment:c.trim(),date:Date.now()});wr(KRT,l);
+  addChat(id,{from:cu.id,name:cu.name,sys:"status",text:"⭐ RATED: Nag-rate si "+cu.name+" ng "+s+"/5 kay "+r.pasabuyerName+"."});return true;
+}
+function shrink(file){return new Promise((ok,no)=>{const fr=new FileReader();fr.onerror=no;fr.onload=()=>{const im=new Image();im.onerror=no;im.onload=()=>{const k=Math.min(1,800/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);ok(c.toDataURL("image/jpeg",.7))};im.src=fr.result};fr.readAsDataURL(file)})}
+function setActual(cu,id,price,receipt){
+  const a=reqs(),r=a.find(x=>x.id===id),p=+price;
+  if(!r||cu.role!=="Pasabuyer"||r.pasabuyerId!==cu.id||(r.status!=="Picked Up"&&r.status!=="On The Way")||r.actualPrice!=null||!(p>0))return false;
+  const b=r.budget;
+  r.itemBudget=b;r.actualPrice=p;r.sukli=Math.max(0,+(b-p).toFixed(2));r.kulang=Math.max(0,+(p-b).toFixed(2));
+  r.originalTotal=+(b+r.serviceFee).toFixed(2);r.finalTotal=+(p+r.serviceFee).toFixed(2);r.finalPrice=r.finalTotal;
+  r.receipt=typeof receipt==="string"&&receipt.startsWith("data:image/")?receipt:null;
+  wr(KR,a);
+  if(!(rd(KR,[]).find(x=>x.id===id)||{}).actualPrice){r.receipt=null;wr(KR,a)} /* receipt too big for storage: save without it */
+  const sv=pp(r.serviceFee);
+  const t=r.kulang>0?"⚠️ KULANG: Actual price ng "+r.item+" ay "+pp(p)+" (budget "+pp(b)+"). Kulang "+pp(r.kulang)+", kailangan mong dagdagan. Final total with service "+sv+" = "+pp(r.finalTotal)+"."
+   :"🧾 RECEIPT: Actual price ng "+r.item+" ay "+pp(p)+(r.sukli>0?" lang":"")+" (from "+pp(b)+" budget). "+(r.sukli>0?"May sukli ka "+pp(r.sukli)+".":"Walang sukli.")+" Final total with service "+sv+" = "+pp(r.finalTotal)+"."+(r.sukli>0?" Ibabalik ni rider kasama item.":"");
+  addChat(id,{from:cu.id,name:cu.name,sys:r.kulang>0?"declined":"status",text:t});return true;
+}
+function confirmSettle(cu,id,yes){
+  const a=reqs(),r=a.find(x=>x.id===id);
+  if(!r||cu.role!=="Customer"||r.customerId!==cu.id||r.status!=="Delivered"||r.actualPrice==null||(r.sukli===0&&r.kulang===0)||r.settled==="yes")return false;
+  r.settled=yes?"yes":"no";wr(KR,a);
+  const k=r.kulang>0,amt=pp(k?r.kulang:r.sukli);
+  addChat(id,{from:cu.id,name:cu.name,sys:yes?"accepted":"declined",text:yes?"✅ SETTLED: Na-confirm ni "+cu.name+" na "+(k?"naidagdag na ang kulang na ":"naibalik na ang sukli na ")+amt+".":"❌ NOT YET: Sabi ni "+cu.name+" hindi pa "+(k?"naidagdag ang kulang na ":"naibalik ang sukli na ")+amt+"."});return true;
+}
+function sendChat(cu,id,text){
+  const r=reqs().find(x=>x.id===id);if(!r||!canChat(r,cu))return false;
+  addChat(id,{from:cu.id,name:cu.name,text});return true;
+}
+/* ---- UI ---- */
+function Logo({cls,onClick}){
+  const img=html`<img src=${LOGO} alt="Online Pasabuy logo" class=${cls}/>`;
+  return onClick?html`<button onClick=${onClick} aria-label="Online Pasabuy, go to home" class="rounded-xl bg-white p-1 shadow">${img}</button>`:html`<div class="rounded-2xl bg-white p-2 shadow">${img}</div>`;
+}
+function Login({onAuth}){
+  const [mode,setMode]=useState("in"),[role,setRole]=useState("Customer"),[f,setF]=useState({name:"",email:"",pw:""}),[err,setErr]=useState("");
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  async function submit(e){
+    e.preventDefault();const em=f.email.trim().toLowerCase();
+    if(!/^\S+@\S+\.\S+$/.test(em))return setErr("Enter a valid email address.");
+    if(f.pw.length<6)return setErr("Password must be at least 6 characters.");
+    const h=await hash(f.pw),u=users();
+    if(mode==="up"){
+      if(!f.name.trim())return setErr("Enter your name.");
+      if(u.some(x=>x.email===em))return setErr("That email already has an account. Log in instead.");
+      const nu={id:"u"+Date.now(),name:f.name.trim(),email:em,pw:h,role};u.push(nu);wr(KU,u);onAuth(nu);
+    }else{
+      const x=u.find(y=>y.email===em&&y.pw===h);
+      if(!x)return setErr("Email or password is incorrect.");
+      if(x.role!==role)return setErr("This account is registered as a "+x.role+". Select "+x.role+" to log in.");
+      onAuth(x);
+    }
+  }
+  const seg=(v)=>html`<button type="button" aria-pressed=${role===v} onClick=${()=>setRole(v)} class=${"flex-1 py-2 font-semibold "+(role===v?"bg-amber-300 text-black":"text-muted")}>${v}</button>`;
+  return html`<main class="min-h-screen grid place-items-center p-5 bg-gradient-to-br from-violet-900 via-violet-700 to-fuchsia-600">
+   <div class="w-full max-w-md bg-surface rounded-3xl p-6 shadow-2xl">
+    <div class="flex justify-center -mt-2 mb-3"><${Logo} cls="h-32 w-auto"/></div>
+    <h1 class="font-display text-2xl font-extrabold text-center">${mode==="in"?"Log in to Online Pasabuy":"Create your account"}</h1>
+    <p class="text-center text-muted text-sm mb-4">Mamburao community delivery. Log in to use the app.</p>
+    <div class="flex border border-line rounded-xl overflow-hidden mb-2" role="group" aria-label="Form">
+     <button type="button" aria-pressed=${mode==="in"} onClick=${()=>{setMode("in");setErr("")}} class=${"flex-1 py-2 font-semibold "+(mode==="in"?"bg-brand text-white":"text-muted")}>Log in</button>
+     <button type="button" aria-pressed=${mode==="up"} onClick=${()=>{setMode("up");setErr("")}} class=${"flex-1 py-2 font-semibold "+(mode==="up"?"bg-brand text-white":"text-muted")}>Sign up</button></div>
+    <form onSubmit=${submit} noValidate class="space-y-3">
+     ${mode==="up"&&html`<label class="block text-sm font-semibold">Name<input value=${f.name} onInput=${set("name")} maxLength="40" autoComplete="name"/></label>`}
+     <label class="block text-sm font-semibold">Email<input type="email" value=${f.email} onInput=${set("email")} autoComplete="email"/></label>
+     <label class="block text-sm font-semibold">Password<input type="password" value=${f.pw} onInput=${set("pw")} autoComplete=${mode==="in"?"current-password":"new-password"}/></label>
+     <div><div class="text-sm font-semibold mb-1">I am a</div><div class="flex border border-line rounded-xl overflow-hidden" role="group" aria-label="Role">${seg("Customer")}${seg("Pasabuyer")}</div></div>
+     <p role="alert" class="text-red-600 font-semibold text-sm min-h-[1.25rem]">${err}</p>
+     <button class=${B1+" w-full"}>${mode==="in"?"Log in":"Create account"}</button>
+    </form>
+    <p class="text-xs text-muted mt-3">Test accounts: customer@test.com or pasabuyer@test.com, password 123456. Choose the matching role.</p>
+   </div></main>`;
+}
+function Home({cu,go,openPost}){
+  const cust=cu.role==="Customer";
+  return html`<section class="rounded-3xl p-6 md:p-10 text-white bg-gradient-to-br from-violet-900 via-violet-700 to-fuchsia-600 grid md:grid-cols-2 gap-8 items-center">
+   <div>
+    <h1 class="font-display font-extrabold italic text-6xl md:text-7xl leading-none">PASABUY!</h1>
+    <p class="font-display font-extrabold text-2xl md:text-3xl mt-3 text-amber-300">FAST. LOCAL. EASY.</p>
+    <p class="mt-4 text-violet-100 max-w-md">Post what you need from the market or store. Pasabuyers send you a service-fee offer, you accept the one you like, and you follow the delivery step by step.</p>
+    <div class="mt-6 flex flex-wrap gap-3">
+     ${cust?html`<button class=${B2} onClick=${openPost}>Post Request</button>`:html`<button class=${B2} onClick=${()=>go("board")}>Open Request Board</button>`}
+     <button class=${BTN+"border border-white/50 hover:bg-white/10"} onClick=${()=>go("dash")}>View Dashboard</button></div>
+   </div>
+   <div class="relative flex justify-center pt-6">
+    <div class="bg-white rounded-3xl p-5 shadow-2xl w-full max-w-sm">
+     <img src=${LOGO} alt="Online Pasabuy rider on a scooter" class="w-full h-auto"/></div>
+    <span class="absolute top-0 right-2 md:right-6 bg-white text-emerald-700 font-bold rounded-full px-4 py-2 shadow-lg flex items-center gap-2"><span class="dot inline-block w-3 h-3 rounded-full bg-emerald-500"></span>Rider is on the way</span>
+   </div></section>`;
+}
+function Stars({v,set}){return html`<div class="flex gap-1" role="radiogroup" aria-label="Rating">${[1,2,3,4,5].map(i=>html`<button type="button" key=${i} role="radio" aria-checked=${v===i} aria-label=${i+" star"+(i>1?"s":"")} onClick=${()=>set(i)} class=${"text-3xl "+(i<=v?"text-amber-400":"text-muted")}>★</button>`)}</div>`}
+function Rate({r,cu,a}){
+  const [s,setS]=useState(0),[c,setC]=useState(""),done=ratings().find(x=>x.requestId===r.id);
+  if(done)return html`<div class="rounded-2xl border border-line bg-surface p-4"><b>Rating for ${r.pasabuyerName}:</b> <span class="text-amber-400 text-xl">${"★".repeat(done.stars)}</span>${"☆".repeat(5-done.stars)}${done.comment&&html`<p class="text-sm text-muted">“${done.comment}”</p>`}</div>`;
+  if(cu.role!=="Customer"||r.customerId!==cu.id)return null;
+  return html`<form class="rounded-2xl border border-line bg-surface p-4 space-y-2" onSubmit=${e=>{e.preventDefault();if(!s)return;a.rate(r.id,s,c)}}>
+   <h3 class="font-display text-lg font-extrabold">Rate ${r.pasabuyerName}</h3><${Stars} v=${s} set=${setS}/>
+   <input value=${c} onInput=${e=>setC(e.target.value)} maxLength="200" placeholder="Comment (optional)" aria-label="Comment"/>
+   <button class=${B1} disabled=${!s}>Submit rating</button><p class="text-xs text-muted">You can rate once per request.</p></form>`;
+}
+function Offers({r,cu,a}){
+  const own=r.customerId===cu.id,l=own?r.offers:r.offers.filter(o=>o.riderId===cu.id);
+  if(!l.length)return html`<p class="text-sm text-muted">No offers yet.</p>`;
+  const C={pending:"bg-amber-100 text-amber-900",accepted:"bg-emerald-100 text-emerald-900",declined:"bg-red-100 text-red-900"};
+  return html`<div class="space-y-2">${l.map(o=>html`<div key=${o.offerId} class="rounded-xl border border-line bg-surface p-3">
+   <div class="flex flex-wrap items-center justify-between gap-2"><div><b>${o.riderName}</b> <span class="text-xs text-muted">${starTxt(o.riderId)}</span>
+    <div class="font-display text-xl font-extrabold">${pp(o.price)} <span class="text-sm font-semibold">service fee</span></div></div>
+    <span class=${"text-xs font-bold px-2.5 py-1 rounded-full "+C[o.status]}>${o.status}</span></div>
+   ${o.message&&html`<p class="text-sm text-muted mt-1">“${o.message}”</p>`}
+   ${own&&r.status==="Pending"&&o.status==="pending"&&html`<div class="flex gap-2 mt-2"><button class=${BTN+"bg-emerald-600 text-white"} onClick=${()=>a.acc(r.id,o.offerId)}>✓ Accept Offer</button><button class=${BTN+"bg-red-600 text-white"} onClick=${()=>a.dec(r.id,o.offerId)}>✗ Decline</button></div>`}</div>`)}</div>`;
+}
+function Notes({cu,a}){
+  const l=[];reqs().filter(r=>r.customerId===cu.id&&r.status==="Pending").forEach(r=>r.offers.filter(o=>o.status==="pending").forEach(o=>l.push([r,o])));
+  if(!l.length)return null;
+  return html`<div role="status" class="rounded-2xl border border-amber-400 bg-amber-100 text-amber-950 p-4 mb-5"><div class="font-bold mb-1">🔔 ${l.length} pending offer${l.length>1?"s":""}</div>
+   ${l.map(([r,o])=>html`<div key=${o.offerId} class="flex flex-wrap items-center justify-between gap-2 py-1"><span>New offer! Si ${o.riderName} nag-offer ${pp(o.price)} (${r.item})</span><button class=${B1+" !py-1 text-sm"} onClick=${()=>a.track(r.id)}>Review offer</button></div>`)}</div>`;
+}
+function Card({r,cu,a}){
+  const rider=cu.role==="Pasabuyer",mine=r.pasabuyerId===cu.id,nx=STEPS[STEPS.indexOf(r.status)+1],pend=r.offers.filter(o=>o.status==="pending").length;
+  return html`<article class="rounded-2xl border border-line bg-surface p-4 flex flex-col gap-2">
+   <div class="flex items-center justify-between"><span class=${"text-xs font-bold px-2.5 py-1 rounded-full "+SC[r.status]}>${r.status}</span><span class="text-sm text-muted">🔒 Budget ${pp(r.budget)}</span></div>
+   <h3 class="font-display text-lg font-extrabold">${r.item}</h3>
+   <p class="text-sm text-muted">Quantity: ${r.qty}</p><p class="text-sm text-muted">Buy at (P): ${r.store}</p><p class="text-sm text-muted">Deliver to (D): ${r.address}</p>
+   ${r.description&&html`<p class="text-sm text-muted">Description: ${r.description}</p>`}
+   <p class="text-sm text-muted">Customer: ${r.customerName}</p>
+   ${r.pasabuyerName&&html`<p class="text-sm text-muted">Pasabuyer: ${r.pasabuyerName} ${starTxt(r.pasabuyerId)}</p>`}
+   ${r.status!=="Pending"?html`<p class="text-sm font-semibold">${r.actualPrice!=null?"Actual "+pp(r.actualPrice)+" + Service "+pp(r.serviceFee)+" = Final "+pp(r.finalTotal)+(r.sukli>0?" (Sukli "+pp(r.sukli)+")":r.kulang>0?" (Kulang "+pp(r.kulang)+")":""):"Item "+pp(r.budget)+" + Service "+pp(r.serviceFee)+" = Total "+pp(r.budget+r.serviceFee)}</p>`:html`<p class="text-sm text-muted">${r.offers.length} offer${r.offers.length===1?"":"s"} so far</p>`}
+   <div class="flex flex-wrap gap-2 mt-auto pt-2">
+    ${canOffer(r,cu)&&html`<button class=${B2} onClick=${()=>a.offer(r.id)}>Offer Price</button>`}
+    ${rider&&r.status==="Pending"&&hasLive(r,cu.id)&&html`<span class="text-sm text-muted self-center">Offer sent. Waiting for customer.</span>`}
+    ${!rider&&r.status==="Pending"&&pend>0&&html`<button class=${B2} onClick=${()=>a.track(r.id)}>View offers (${pend})</button>`}
+    ${mine&&nx&&html`<button class=${B1+" disabled:opacity-40"} disabled=${nx==="Delivered"&&r.actualPrice==null} title=${nx==="Delivered"&&r.actualPrice==null?"Confirm the actual price first":undefined} onClick=${()=>a.step(r.id,nx)}>${nx}</button>`}
+    ${canChat(r,cu)&&html`<button class=${B3} onClick=${()=>a.chat(r.id)}>Chat</button>`}
+    ${involved(r,cu)&&html`<button class=${B3} onClick=${()=>a.track(r.id)}>Details / GPS</button>`}
+   </div></article>`;
+}
+const Grid=({l,cu,a,empty})=>html`<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-3">${l.length?l.map(r=>html`<${Card} key=${r.id} r=${r} cu=${cu} a=${a}/>`):html`<div class="col-span-full border border-dashed border-line rounded-2xl p-8 text-center text-muted">${empty}</div>`}</div>`;
+function Dash({cu,a,openPost}){
+  const all=reqs(),p=cu.role==="Pasabuyer",busy=r=>r.status!=="Pending"&&r.status!=="Delivered";
+  const pend=all.filter(r=>r.status==="Pending"&&(p||r.customerId===cu.id)),own=all.filter(r=>p?r.pasabuyerId===cu.id:r.customerId===cu.id);
+  const S=(n,l)=>html`<div class="rounded-2xl border border-line bg-surface p-5"><div class="font-display text-5xl font-extrabold text-brand">${n}</div><div class="text-muted font-semibold">${l}</div></div>`;
+  const sort=l=>l.slice().sort((x,y)=>y.createdAt-x.createdAt);
+  return html`<div><div class="grid sm:grid-cols-3 gap-3 mb-6">${S(pend.length,"Active (Pending)")}${S(own.filter(busy).length,"Trips (Accepted)")}${S(own.filter(r=>r.status==="Delivered").length,"Delivered")}</div>
+   ${p&&html`<p class="mb-5 font-semibold">Your rating: <span class="text-amber-500">${starTxt(cu.id)}</span></p>`}
+   ${!p&&html`<${Notes} cu=${cu} a=${a}/>`}
+   ${p?html`<div class="space-y-6"><div><h2 class="font-display text-xl font-extrabold mb-3">Pending requests (send an offer)</h2><${Grid} l=${sort(pend)} cu=${cu} a=${a} empty="No pending requests right now."/></div>
+     <div><h2 class="font-display text-xl font-extrabold mb-3">My trips</h2><${Grid} l=${sort(own.filter(busy))} cu=${cu} a=${a} empty="No active trips. Offers you send appear here once a customer accepts."/></div></div>`
+   :html`<div><h2 class="font-display text-xl font-extrabold mb-3">Your latest requests</h2><${Grid} l=${sort(all.filter(r=>r.customerId===cu.id)).slice(0,3)} cu=${cu} a=${a} empty=${html`<span>You have no requests yet. <button class=${B1+" ml-2"} onClick=${openPost}>Post Request</button></span>`}/></div>`}</div>`;
+}
+function Board({cu,a,openPost}){
+  const [q,setQ]=useState(""),[s,setS]=useState(""),p=cu.role==="Pasabuyer";
+  const l=reqs().filter(r=>(p||r.customerId===cu.id)&&(!s||r.status===s)&&(!q||(r.item+" "+r.store).toLowerCase().includes(q.toLowerCase()))).sort((x,y)=>y.createdAt-x.createdAt);
+  return html`<div><div class="flex flex-wrap gap-2 mb-3">
+   <input class="flex-1 min-w-[180px]" style=${{width:"auto"}} type="search" placeholder="Search item or store" aria-label="Search" value=${q} onInput=${e=>setQ(e.target.value)}/>
+   <select aria-label="Status" style=${{width:"auto"}} value=${s} onChange=${e=>setS(e.target.value)}><option value="">All statuses</option>${["Pending",...STEPS].map(x=>html`<option key=${x}>${x}</option>`)}</select>
+   ${!p&&html`<button class=${B1} onClick=${openPost}>Post Request</button>`}</div>
+   ${!p&&html`<p class="text-sm text-muted mb-3">You see only the requests you posted.</p>`}
+   <${Grid} l=${l} cu=${cu} a=${a} empty="No requests match."/></div>`;
+}
+const icon=(c)=>L.divIcon({html:c,className:"pin pin-"+c,iconSize:[34,34],iconAnchor:[17,17]});
+function MapView({r}){
+  const el=useRef(null),M=useRef({}),[note,setNote]=useState("");
+  useEffect(()=>{
+    if(!window.L){setNote("The map library failed to load.");return}
+    const map=L.map(el.current,{zoomControl:false,attributionControl:false,minZoom:13,maxZoom:18,maxBounds:[[13.14,120.52],[13.30,120.67]],maxBoundsViscosity:1}).setView(CEN,14),t=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{minZoom:13,maxZoom:18});let w=false;
+    t.on("tileerror",()=>{if(!w){w=true;setNote("Map tiles can’t load in this preview. Markers and the route still work. Tiles load when the app is hosted normally.")}});
+    t.addTo(map);M.current={map};setTimeout(()=>map.invalidateSize(),50);return()=>map.remove();
+  },[]);
+  useEffect(()=>{
+    const m=M.current;if(!m.map)return;const g=geo(r),rp=riderPos(r);
+    if(!m.g)m.g=L.layerGroup().addTo(m.map);m.g.clearLayers();
+    L.polyline([g.P,g.D],{color:"#6b7280",weight:3,dashArray:"8 8"}).addTo(m.g);
+    if(rp&&r.status!=="Accepted")L.polyline([g.P,rp],{color:"#7c3aed",weight:4}).addTo(m.g);
+    L.marker(g.P,{icon:icon("P")}).addTo(m.g);L.marker(g.D,{icon:icon("D")}).addTo(m.g);if(rp)L.marker(rp,{icon:icon("R"),zIndexOffset:500}).addTo(m.g);
+    m.map.fitBounds([g.P,g.D],{padding:[50,50],maxZoom:17});
+  },[r.id,r.status]);
+  const z=d=>M.current.map&&M.current.map[d>0?"zoomIn":"zoomOut"]();
+  return html`<div><div class="relative"><div ref=${el} role="img" aria-label="Delivery map" style=${{height:"360px"}} class="rounded-2xl border border-line"></div>
+   <div class="absolute top-3 right-3 z-[800] flex flex-col gap-1"><button aria-label="Zoom in" onClick=${()=>z(1)} class="w-9 h-9 rounded-lg bg-white text-black font-bold shadow">+</button><button aria-label="Zoom out" onClick=${()=>z(-1)} class="w-9 h-9 rounded-lg bg-white text-black font-bold shadow">−</button></div></div>
+   ${note&&html`<p class="text-sm text-muted mt-2">${note}</p>`}
+   <p class="text-sm text-muted mt-1"><b>P</b> pickup (white)  <b class="text-red-500">D</b> drop-off (red)  <b class="text-violet-500">R</b> rider (purple)  Dashed line = P to D.</p></div>`;
+}
+function Money({r}){
+  if(r.status==="Pending")return html`<div class="rounded-2xl border border-line bg-surface p-4"><div class="font-display text-xl font-extrabold">Item ${pp(r.budget)} <span class="text-sm font-semibold text-muted">🔒 budget LOCKED</span></div><p class="text-sm text-muted">Service fee will be set by the offer the customer accepts.</p></div>`;
+  const has=r.actualPrice!=null,route=r.distance||kmB(geo(r).P,geo(r).D).toFixed(2);
+  return html`<div class="rounded-2xl border border-line bg-surface p-4 space-y-2">
+   ${has?html`<div class="font-display text-xl sm:text-2xl font-extrabold">Item Actual ${pp(r.actualPrice)} (from ${pp(r.budget)} budget) + Service ${pp(r.serviceFee)} = Final ${pp(r.finalTotal)}</div>
+     ${r.sukli>0&&html`<div class="rounded-xl bg-emerald-100 text-emerald-900 p-3"><div class="font-display text-2xl font-extrabold">Sukli: ${pp(r.sukli)}</div><div class="font-semibold">Sukli mo: ${pp(r.sukli)} ibabalik ni rider</div></div>`}
+     ${r.kulang>0&&html`<div class="rounded-xl bg-red-100 text-red-900 p-3"><div class="font-display text-2xl font-extrabold">Kulang ${pp(r.kulang)}</div><div class="font-semibold">Customer needs to add ${pp(r.kulang)}</div></div>`}
+     ${r.sukli===0&&r.kulang===0&&html`<div class="rounded-xl bg-emerald-100 text-emerald-900 p-3 font-semibold">Eksakto ang budget. Walang sukli.</div>`}
+     <p class="text-sm text-muted">Original total was ${pp(r.originalTotal)} (item budget + service).</p>`
+   :html`<div class="font-display text-xl sm:text-2xl font-extrabold">Item ${pp(r.budget)} (budget) + Service ${pp(r.serviceFee)} = Total ${pp(r.budget+r.serviceFee)} <span class="text-sm font-bold text-emerald-600">🔒 LOCKED</span></div>
+     ${(r.status==="Picked Up"||r.status==="On The Way")&&html`<p class="text-sm text-violet-600 font-semibold">Rider is confirming the actual price of the item.</p>`}`}
+   ${r.receipt&&html`<div><img src=${r.receipt} alt="Receipt photo" class="max-h-48 rounded-lg border border-line"/><p class="text-xs text-muted">Resibo from rider</p></div>`}
+   <p class="text-sm text-muted">Route P to D: ${route} km. Rider: ${r.pasabuyerName} ${starTxt(r.pasabuyerId)}</p></div>`;
+}
+function ActualCard({r,cu,a}){
+  const [p,setP]=useState(""),[f,setF]=useState(null),[busy,setBusy]=useState(false);
+  if(cu.role!=="Pasabuyer"||r.pasabuyerId!==cu.id||r.actualPrice!=null||(r.status!=="Picked Up"&&r.status!=="On The Way"))return null;
+  const n=+p,d=r.budget-n;
+  return html`<form class="rounded-2xl border-2 border-amber-400 bg-surface p-4 space-y-3" onSubmit=${async e=>{e.preventDefault();if(!(n>0))return;setBusy(true);let img=null;if(f){try{img=await shrink(f)}catch(x){}}setBusy(false);a.actual(r.id,n,img)}}>
+   <h3 class="font-display text-xl font-extrabold">Magkano actual na binili?</h3>
+   <label class="block text-sm font-semibold">Actual price ng item (e.g. 180)<input type="number" min="0.01" step="any" required value=${p} onInput=${e=>setP(e.target.value)}/></label>
+   <label class="block text-sm font-semibold">Upload resibo (optional, image)<input type="file" accept="image/*" onChange=${e=>setF(e.target.files[0]||null)}/></label>
+   ${n>0&&html`<p class=${"rounded-xl p-3 font-semibold "+(d>=0?"bg-emerald-100 text-emerald-900":"bg-red-100 text-red-900")}>${d>=0?"Sukli = Customer Budget ("+pp(r.budget)+") - Actual Price ("+pp(n)+") = "+pp(d)+" sukli":"Kulang = Actual Price ("+pp(n)+") - Customer Budget ("+pp(r.budget)+") = "+pp(-d)+". Customer needs to add."}</p>`}
+   <button class=${B2} disabled=${busy}>Confirm Actual Price</button><p class="text-xs text-muted">You can confirm this only once. It unlocks the Delivered button.</p></form>`;
+}
+function Settle({r,cu,a}){
+  if(r.status!=="Delivered"||r.actualPrice==null)return null;
+  const own=r.customerId===cu.id,k=r.kulang>0;
+  if(!k&&r.sukli===0)return html`<div class="rounded-2xl border border-line bg-surface p-4 font-semibold">Confirmed: Binayaran mo ${pp(r.originalTotal)}, actual ${pp(r.finalTotal)}. Walang sukli.</div>`;
+  const q="Confirmed: Binayaran mo "+pp(r.originalTotal)+", actual "+pp(r.finalTotal)+", "+(k?"kulang "+pp(r.kulang)+" naidagdag mo na?":"sukli "+pp(r.sukli)+" naibalik na?");
+  return html`<div class="rounded-2xl border-2 border-emerald-500 bg-surface p-4 space-y-2"><p class="font-semibold">${q}</p>
+   ${r.settled==="yes"&&html`<p class="font-bold text-emerald-600">✓ Yes. Customer confirmed.</p>`}
+   ${r.settled==="no"&&html`<p class="font-bold text-red-600">✗ No. Customer says it is not settled yet. Please settle in chat.</p>`}
+   ${own&&r.settled!=="yes"&&html`<div class="flex gap-2"><button class=${BTN+"bg-emerald-600 text-white"} onClick=${()=>a.settle(r.id,true)}>Yes</button>${r.settled!=="no"&&html`<button class=${BTN+"bg-red-600 text-white"} onClick=${()=>a.settle(r.id,false)}>No</button>`}</div>`}
+   ${!own&&!r.settled&&html`<p class="text-sm text-muted">Waiting for the customer to confirm…</p>`}</div>`;
+}
+function Gps({cu,sel,setSel,a}){
+  const t=reqs().filter(r=>r.customerId===cu.id||r.pasabuyerId===cu.id||(r.status==="Pending"&&r.offers.some(o=>o.riderId===cu.id)));
+  if(!t.length)return html`<div class="border border-dashed border-line rounded-2xl p-8 text-center text-muted">Nothing to track yet. ${cu.role==="Customer"?"Post a request, then review the offers you receive here.":"Send an offer on a pending request first."}</div>`;
+  const r=t.find(x=>x.id===sel)||t[0],isC=r.customerId===cu.id,mine=r.pasabuyerId===cu.id,idx=STEPS.indexOf(r.status),nx=STEPS[idx+1],pend=r.status==="Pending";
+  return html`<div class="space-y-4">
+   <label class="block text-sm font-semibold">Select request<select value=${r.id} onChange=${e=>setSel(e.target.value)}>${t.map(x=>html`<option key=${x.id} value=${x.id}>${x.item} (${x.status})</option>`)}</select></label>
+   <${Money} r=${r}/>
+   ${pend?html`<div class="space-y-3"><h2 class="font-display text-xl font-extrabold">${isC?"Offers from pasabuyers":"Your offers"}</h2><${Offers} r=${r} cu=${cu} a=${a}/>
+     ${canOffer(r,cu)&&html`<button class=${B2} onClick=${()=>a.offer(r.id)}>Offer Price</button>`}
+     <div class="rounded-2xl border border-dashed border-line p-6 text-center text-muted">📍 Waiting for offer acceptance. The map and delivery timeline open after the customer accepts an offer.</div></div>`
+   :html`<div class="space-y-4">
+     <ol class="flex flex-wrap gap-2" aria-label="Delivery progress">${STEPS.map((s,i)=>html`<li key=${s} class=${"rounded-full px-3 py-1 text-sm font-semibold "+(i<=idx?"bg-brand text-white":"bg-chip text-muted")}>${s}</li>`)}</ol>
+     ${mine&&nx&&html`<div><div class="flex flex-wrap gap-2">${STEPS.slice(1).map(s=>html`<button key=${s} class=${B1+" disabled:opacity-40"} disabled=${s!==nx||(s==="Delivered"&&r.actualPrice==null)} onClick=${()=>a.step(r.id,s)}>${s}</button>`)}</div><p class="text-sm text-muted mt-1">Tap the next step. The R marker moves only when you tap.${nx==="Delivered"&&r.actualPrice==null?" Confirm the actual price (below) to unlock Delivered.":""}</p></div>`}
+     ${isC&&nx&&html`<p class="font-semibold text-violet-600">Waiting for rider… (${r.status}. Next: ${nx})</p>`}
+     ${!isC&&!mine&&html`<p class="text-muted">Another pasabuyer was chosen for this request.</p>`}
+     ${r.status==="Delivered"&&html`<p class="font-semibold text-emerald-600">Delivered ✓</p>`}
+     <${ActualCard} r=${r} cu=${cu} a=${a}/>
+     <${MapView} r=${r}/>
+     <${Settle} r=${r} cu=${cu} a=${a}/>
+     ${r.status==="Delivered"&&html`<${Rate} r=${r} cu=${cu} a=${a}/>`}</div>`}</div>`;
+}
+function Chat({cu,sel,setSel,say,a}){
+  const t=reqs().filter(r=>canChat(r,cu)),[txt,setTxt]=useState(""),end=useRef(null);
+  const r=t.find(x=>x.id===sel)||t[0],msgs=r?(rd(KC,{})[r.id]||[]):[];
+  useEffect(()=>{if(end.current)end.current.scrollTop=end.current.scrollHeight},[msgs.length,r&&r.id]);
+  if(!r)return html`<div class="border border-dashed border-line rounded-2xl p-8 text-center text-muted">Chat opens when a pasabuyer sends an offer on a request.</div>`;
+  function send(e){e.preventDefault();const v=txt.trim();if(!v)return;if(sendChat(cu,r.id,v))setTxt("");else say("You can’t chat on this request.")}
+  const SY={offer:"bg-amber-100 text-amber-950",accepted:"bg-emerald-100 text-emerald-900",declined:"bg-red-100 text-red-900",status:"bg-violet-100 text-violet-900"};
+  return html`<div class="max-w-2xl space-y-3">
+   <label class="block text-sm font-semibold">Chat for<select value=${r.id} onChange=${e=>setSel(e.target.value)}>${t.map(x=>html`<option key=${x.id} value=${x.id}>${x.item} (${x.status})</option>`)}</select></label>
+   ${cu.role==="Customer"&&r.status==="Pending"&&r.offers.some(o=>o.status==="pending")&&html`<div class="rounded-2xl border border-amber-400 bg-amber-100 text-amber-950 p-3"><div class="font-bold mb-2">🔔 New offer! ${r.offers.filter(o=>o.status==="pending").map(o=>"Si "+o.riderName+" nag-offer "+pp(o.price)).join(", ")}</div><${Offers} r=${r} cu=${cu} a=${a}/></div>`}
+   <div ref=${end} class="rounded-2xl border border-line bg-surface p-3 h-80 overflow-auto space-y-2">
+    ${msgs.length?msgs.map((m,i)=>m.sys?html`<div key=${i} class=${"rounded-xl px-3 py-2 text-sm font-semibold "+SY[m.sys]}>${m.text}</div>`:html`<div key=${i} class=${"flex "+(m.from===cu.id?"justify-end":"justify-start")}><div class=${"max-w-[80%] rounded-2xl px-3 py-2 "+(m.from===cu.id?"bg-brand text-white":"bg-chip")}><div class="text-xs opacity-75 font-semibold">${m.name}</div>${m.text}</div></div>`):html`<p class="text-muted text-sm">No messages yet.</p>`}</div>
+   <form onSubmit=${send} class="flex gap-2"><input value=${txt} onInput=${e=>setTxt(e.target.value)} maxLength="300" placeholder="Write a message" aria-label="Message"/><button class=${B1}>Send</button></form></div>`;
+}
+function OfferModal({r,close,onSend}){
+  const [p,setP]=useState(""),[m,setM]=useState("");
+  useEffect(()=>{const k=e=>e.key==="Escape"&&close();window.addEventListener("keydown",k);return()=>window.removeEventListener("keydown",k)},[]);
+  return html`<div class="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick=${e=>e.target===e.currentTarget&&close()}>
+   <form role="dialog" aria-modal="true" aria-label="Offer price" class="bg-surface rounded-2xl p-5 w-full max-w-lg" onSubmit=${e=>{e.preventDefault();onSend(p,m)}}>
+    <h2 class="font-display text-2xl font-extrabold">Offer price</h2>
+    <p class="text-sm text-muted">${r.item}. Item budget ${pp(r.budget)} (locked, you cannot change it).</p>
+    <label class="block text-sm font-semibold mt-3">Your Service Fee (e.g. ₱50 for delivery to Payompon)<input type="number" min="1" step="any" required value=${p} onInput=${e=>setP(e.target.value)}/></label>
+    <label class="block text-sm font-semibold mt-3">Message to customer (optional, e.g. Mahal pamasahe malayo)<input maxLength="200" value=${m} onInput=${e=>setM(e.target.value)}/></label>
+    <div class="flex justify-end gap-2 mt-4"><button type="button" class=${B3} onClick=${close}>Cancel</button><button class=${B2}>Send Offer</button></div></form></div>`;
+}
+function PostModal({close,onSave}){
+  const [f,setF]=useState({item:"",qty:"",store:"",description:"",budget:"",address:""});
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  useEffect(()=>{const k=e=>e.key==="Escape"&&close();window.addEventListener("keydown",k);return()=>window.removeEventListener("keydown",k)},[]);
+  const F=(t,k,p={})=>html`<label class="block text-sm font-semibold mt-3">${t}<input value=${f[k]} onInput=${set(k)} ...${p}/></label>`;
+  return html`<div class="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick=${e=>e.target===e.currentTarget&&close()}>
+   <form role="dialog" aria-modal="true" aria-label="Post a request" class="bg-surface rounded-2xl p-5 w-full max-w-lg max-h-[92vh] overflow-auto" onSubmit=${e=>{e.preventDefault();onSave(f)}}>
+    <h2 class="font-display text-2xl font-extrabold">Post a request</h2>
+    ${F("Item name","item",{required:true,maxLength:80,placeholder:"e.g. Gamot"})}
+    <div class="grid grid-cols-2 gap-3">${F("Quantity","qty",{required:true,maxLength:20})}${F("Budget (PHP) - LOCKED","budget",{required:true,type:"number",min:1,step:"any",placeholder:"300"})}</div>
+    <p class="text-xs text-muted mt-1">LOCKED: this is the estimated cost of the item. It cannot be changed by the pasabuyer. The service fee comes from the offer you accept.</p>
+    ${F("Store to buy from (P)","store",{required:true,maxLength:60})}${F("Delivery address (D)","address",{required:true,maxLength:100})}
+    <label class="block text-sm font-semibold mt-3">Description<textarea rows="2" maxLength="200" value=${f.description} onInput=${set("description")} placeholder="Brand, size, other details"></textarea></label>
+    <div class="flex justify-end gap-2 mt-4"><button type="button" class=${B3} onClick=${close}>Cancel</button><button class=${B1}>Post request</button></div></form></div>`;
+}
+function App(){
+  const [ready,setReady]=useState(false),[cu,setCu]=useState(()=>rd(KS,null)),[page,setPage]=useState("home"),[sel,setSel]=useState(null),[post,setPost]=useState(false),[offer,setOffer]=useState(null),[toast,setToast]=useState(""),[,tick]=useState(0);
+  useEffect(()=>{ensureSeed().then(()=>setReady(true))},[]);
+  useEffect(()=>{const f=()=>tick(n=>n+1),i=setInterval(f,1500),s=e=>{if(!e.key||e.key===KS)setCu(rd(KS,null));f()};window.addEventListener("storage",s);return()=>{clearInterval(i);window.removeEventListener("storage",s)}},[]);
+  const say=m=>{setToast(m);setTimeout(()=>setToast(""),2600)};
+  if(!ready)return html`<p class="p-8">Loading…</p>`;
+  const valid=cu&&users().some(u=>u.id===cu.id&&u.role===cu.role&&u.email===cu.email);
+  if(!valid)return html`<${Login} onAuth=${u=>{const s={id:u.id,name:u.name,email:u.email,role:u.role};wr(KS,s);setCu(s);setPage("home")}}/>`;
+  const go=p=>{setPage(p);window.scrollTo(0,0)},cust=cu.role==="Customer";
+  const a={
+    offer:id=>{const r=reqs().find(x=>x.id===id);if(r&&canOffer(r,cu))setOffer(id);else say("You already have an active offer on this request.")},
+    acc:(id,o)=>{if(acceptOffer(cu,id,o)){say("Offer accepted. Rider assigned, GPS is open.");setSel(id);go("gps")}else say("Could not accept this offer.")},
+    dec:(id,o)=>{declineOffer(cu,id,o)?say("Offer declined"):say("Could not decline this offer.")},
+    step:(id,s)=>{const q=reqs().find(x=>x.id===id);if(s==="Delivered"&&q&&q.actualPrice==null){say("Confirm the actual price first (Magkano actual na binili?).");return}setStep(cu,id,s)?say("Status: "+s):say("Only the assigned pasabuyer can update the status.")},
+    actual:(id,p,img)=>{setActual(cu,id,p,img)?say("Actual price confirmed. Customer notified in chat."):say("Could not save the actual price.")},
+    settle:(id,y)=>{confirmSettle(cu,id,y)?say(y?"Salamat! Confirmed.":"Noted. Please settle with the rider in chat."):say("Could not save.")},
+    rate:(id,s,c)=>{rateRider(cu,id,s,c)?say("Thanks for rating"):say("You can rate only once per delivered request.")},
+    chat:id=>{setSel(id);go("chat")},track:id=>{setSel(id);go("gps")}};
+  const nav=[["home","Home"],["dash","Dashboard"],["board","Request Board"],["gps","GPS Tracking"],["chat","Chat"]];
+  const openPost=()=>cust?setPost(true):say("Only customers can post requests.");
+  const offerReq=offer&&reqs().find(x=>x.id===offer);
+  return html`<div>
+   <header class="bg-gradient-to-r from-violet-900 via-violet-700 to-fuchsia-700 text-white"><div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
+    <${Logo} cls="h-12 w-auto" onClick=${()=>go("home")}/>
+    <nav class="flex flex-wrap gap-1" aria-label="Main">${nav.map(([k,l])=>html`<button key=${k} onClick=${()=>go(k)} aria-current=${page===k?"page":undefined} class=${"px-3 py-2 rounded-lg font-semibold "+(page===k?"bg-white/25":"hover:bg-white/10")}>${l}</button>`)}</nav>
+    <div class="flex flex-wrap items-center gap-2">
+     <span class="bg-amber-300 text-black font-bold rounded-full px-3 py-1 text-sm">Role: ${cu.role}</span><span class="text-sm">${cu.name}</span>
+     ${cust&&html`<button class=${B2+" !py-1.5 text-sm"} onClick=${openPost}>Post Request</button>`}
+     <button class=${BTN+"border border-white/50 !py-1.5 text-sm"} onClick=${()=>{try{localStorage.removeItem(KS)}catch(e){}setCu(null)}}>Log out</button></div></div></header>
+   <main class="max-w-6xl mx-auto px-4 py-6">
+    ${page==="home"&&html`<${Home} cu=${cu} go=${go} openPost=${openPost}/>`}
+    ${page==="dash"&&html`<${Dash} cu=${cu} a=${a} openPost=${openPost}/>`}
+    ${page==="board"&&html`<${Board} cu=${cu} a=${a} openPost=${openPost}/>`}
+    ${page==="gps"&&html`<${Gps} cu=${cu} sel=${sel} setSel=${setSel} a=${a}/>`}
+    ${page==="chat"&&html`<${Chat} cu=${cu} sel=${sel} setSel=${setSel} say=${say} a=${a}/>`}
+   </main>
+   ${post&&html`<${PostModal} close=${()=>setPost(false)} onSave=${f=>{if(postRequest(cu,f)){setPost(false);go("board");say("Request posted. Pasabuyers can now send offers.")}else say("Only customers can post requests.")}}/>`}
+   ${offerReq&&html`<${OfferModal} r=${offerReq} close=${()=>setOffer(null)} onSend=${(p,m)=>{if(sendOffer(cu,offer,p,m)){setOffer(null);say("Offer sent to the customer")}else say("Enter a valid service fee.")}}/>`}
+   ${toast&&html`<div role="status" class="fixed left-1/2 -translate-x-1/2 bottom-5 bg-ink text-bg px-4 py-2 rounded-xl z-[60]">${toast}</div>`}</div>`;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(html`<${App}/>`);
+</script>
+</body>
+</html>
